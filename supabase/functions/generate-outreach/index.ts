@@ -1,0 +1,458 @@
+// Supabase Edge Function: generate-outreach
+//
+// Generates a complete LinkedIn outreach FLOW for a lead, grounded in the user's
+// own context. BYOK (Gemini / OpenAI / Anthropic). Deploy with verify_jwt OFF.
+//
+// The SHAPE of that flow is not decided here. The caller sends `steps`, derived
+// from the method pack, and this function asks the model for exactly those keys.
+//
+// That indirection is the fix for a real defect: this function used to hardcode
+// its own eight-key JSON shape while the pack described twelve differently-named
+// steps. The model was told two different structures, and the validator then
+// graded the response against keys nobody had asked for — reporting every step
+// as "came back empty. Regenerate." on top of perfectly good copy. One contract,
+// derived from the doctrine, is the only way that stays fixed.
+
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+/**
+ * Origins allowed to call this function.
+ *
+ * Set ALLOWED_ORIGINS as a comma-separated list of your deployed app's origins
+ * to lock this down. Left unset it allows any origin, which is safe enough only
+ * because requireUser below rejects anyone without a valid session for THIS
+ * project — but setting it is worth the thirty seconds.
+ */
+const ALLOWED = (Deno.env.get('ALLOWED_ORIGINS') ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+
+const corsFor = (req: Request) => {
+  const origin = req.headers.get('Origin') ?? '';
+  const allow = ALLOWED.length === 0 ? '*' : ALLOWED.includes(origin) ? origin : '';
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+};
+
+/**
+ * Identify the caller and REQUIRE a real signed-in user.
+ *
+ * These functions deploy with verify_jwt off, because the browser calls them
+ * with the anon key. The platform therefore performs no auth at all and this is
+ * the only gate. Without it the function is an open relay: anyone who finds the
+ * URL can post an arbitrary provider, key and prompt and have someone else's
+ * project make the outbound call, burning their invocation quota and lending
+ * their domain to whatever the caller is doing.
+ *
+ * Deliberately duplicated rather than shared: the setup wizard hands these
+ * sources to the user as copy-paste text, so a cross-file import would not
+ * survive the install.
+ */
+async function requireUser(req: Request): Promise<string | null> {
+  try {
+    const client = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } },
+    );
+    const { data } = await client.auth.getUser();
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+
+
+/**
+ * The deployed-code version.
+ *
+ * These functions are pasted into someone's own Supabase project, so the app has
+ * no way to know which revision is actually running — and "did you redeploy?"
+ * is unanswerable by looking at the screen. A response that does not carry this
+ * marker is an old deployment, and the app now says so instead of leaving the
+ * user to interpret a blank result.
+ */
+const CONTRACT = 3;
+
+type Provider = 'gemini' | 'openai' | 'anthropic' | 'openrouter';
+
+/** OpenRouter speaks the OpenAI wire format, so only the base URL differs. */
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+
+/**
+ * Optional attribution headers. OpenRouter uses them for its public model
+ * rankings and shows the title in the user's own activity log, which is how
+ * someone tells an Ember generation apart from everything else on the key.
+ */
+const OPENROUTER_HEADERS = {
+  'HTTP-Referer': 'https://github.com/mani-kanasani/trackup-latest',
+  'X-Title': 'Ember',
+};
+
+/**
+ * Ask Anthropic for JSON without prefilling the assistant turn.
+ *
+ * The prefill trick ("{" as a trailing assistant message) returns a hard 400 on
+ * Claude 4.6-generation models and later, which includes claude-sonnet-5 and
+ * claude-opus-5. Structured outputs are the supported replacement and work on
+ * every model we offer, so there is one code path rather than a per-model
+ * branch.
+ */
+const jsonSchemaFor = (keys: string[]) => ({
+  type: 'json_schema',
+  schema: {
+    type: 'object',
+    properties: Object.fromEntries(keys.map((k) => [k, { type: 'string' }])),
+    required: keys,
+    // Required by the API on every object in the schema.
+    additionalProperties: false,
+  },
+});
+
+/**
+ * The text out of a Messages response.
+ *
+ * Never index `content` positionally. Thinking is on by default on Opus 5 and
+ * Sonnet 5, so content[0] is a thinking block and `content[0].text` is
+ * undefined. Worse, thinking is adaptive: the model skips it on simple requests,
+ * so positional access fails INTERMITTENTLY and reads as a flaky model rather
+ * than a client bug. Finding the block by type is also forward-safe against
+ * tool_use blocks appearing later.
+ */
+const textFrom = (data: { content?: { type: string; text?: string }[]; stop_reason?: string }): string => {
+  // Truncation first, and before checking for text at all.
+  //
+  // Thinking tokens count toward max_tokens on Claude 5, and this app sends a
+  // 19,000-character doctrine prompt, so the model can spend the entire budget
+  // reasoning and emit no text whatsoever. When it does emit some, the JSON is
+  // cut mid-object and the parser reports "not usable JSON", which points the
+  // user at the model when the real cause is a cap set too low.
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error(
+      'The model ran out of output budget before finishing. This is a cap, not a bad response: ' +
+        'the request asks for a lot and thinking tokens count toward the same budget. Try again, ' +
+        'or pick a faster model in Settings.',
+    );
+  }
+  const block = (data.content ?? []).find((b) => b.type === 'text');
+  if (!block?.text) {
+    throw new Error(`The model returned no text. stop_reason: ${data.stop_reason ?? 'unknown'}.`);
+  }
+  return block.text;
+};
+
+
+/**
+ * The sentence out of a provider error, rather than the whole JSON body.
+ *
+ * Providers bury the useful line at different depths, and dumping the raw body
+ * at the user means they read
+ *   {"type":"error","error":{"type":"invalid_request_error","message":"..."}}
+ * when the only part that matters is the message.
+ */
+async function readProviderError(res: Response): Promise<string> {
+  const raw = await res.text();
+  try {
+    const body = JSON.parse(raw);
+    const msg = body?.error?.message ?? body?.message ?? body?.error;
+    if (typeof msg === 'string' && msg) return `${res.status}: ${msg}`;
+  } catch {
+    // Not JSON. The raw body still beats the status alone.
+  }
+  return `${res.status}: ${raw.slice(0, 200) || 'no detail returned'}`;
+}
+
+
+interface LeadInput {
+  name?: string;
+  job_title?: string;
+  company_name?: string;
+  industry?: string;
+  linkedin_url?: string;
+  company_website?: string;
+  potential_services?: string;
+}
+
+/** One key the model must return, sent by the caller from the method pack. */
+interface OutputStep {
+  key: string;
+  label: string;
+  purpose: string;
+  maxChars?: number;
+  constraints?: string[];
+}
+
+interface RequestInput {
+  lead?: LeadInput;
+  context?: string;
+  systemPrompt?: string;
+  /** The output contract, derived from the pack. */
+  steps?: OutputStep[];
+  provider?: Provider;
+  model?: string;
+  apiKey?: string;
+}
+
+const DEFAULT_MODEL: Record<Provider, string> = {
+  gemini: 'gemini-2.5-flash',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-haiku-4-5',
+};
+
+const SYSTEM_PROMPT =
+  'You are an expert B2B LinkedIn outreach strategist and copywriter. You write concise, human, ' +
+  'specific, non-salesy messages that get replies, and you design smart multi-step flows with ' +
+  'branches for how prospects respond. You always reply with a single valid JSON object and nothing else.';
+
+/** Kept alongside the pack's steps: tactical advice, not a message to send. */
+const STRATEGY_KEY = 'blank_strategy';
+const STRATEGY_SPEC =
+  'One sentence of advice. Blank connection requests, with no note, often accept at a higher rate. ' +
+  'Say whether to send blank for this specific person, and how to open if so.';
+
+/**
+ * Turns the pack's steps into the JSON contract.
+ *
+ * Each key carries its own purpose, character ceiling and constraints, so the
+ * model is told what every field is FOR rather than being handed one blob and
+ * a word count.
+ */
+const shapeFromSteps = (steps: OutputStep[]): string => {
+  const lines = steps.map((s) => {
+    const cap = s.maxChars ? ` MAX ${s.maxChars} characters.` : '';
+    const cons = s.constraints?.length ? ` ${s.constraints.join(' ')}` : '';
+    return `  ${JSON.stringify(s.key)}: ${JSON.stringify(`${s.label}. ${s.purpose}${cap}${cons}`)}`;
+  });
+  lines.push(`  ${JSON.stringify(STRATEGY_KEY)}: ${JSON.stringify(STRATEGY_SPEC)}`);
+  return `{\n${lines.join(',\n')}\n}`;
+};
+
+const buildPrompt = (lead: LeadInput, context: string, steps: OutputStep[]): string =>
+  `Design a complete LinkedIn outreach FLOW for this lead.
+${context ? `\nBackground about me / my agency (use for credibility, proof and specifics):\n${context}\n` : ''}
+Lead details:
+- Name: ${lead.name ?? ''}
+- Job title: ${lead.job_title ?? ''}
+- Company: ${lead.company_name ?? ''}
+- Industry: ${lead.industry ?? ''}
+- Company website: ${lead.company_website ?? ''}
+- Services I could offer them: ${lead.potential_services ?? ''}
+
+Return ONLY a JSON object with exactly these keys, and every one of them:
+${shapeFromSteps(steps)}
+
+Every key must be present and non-empty. Be specific to THIS lead and sound human.
+Avoid generic openers like "I came across your profile".`;
+
+async function callOpenAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  system: string,
+  prompt: string,
+  useJsonMode: boolean,
+  extraHeaders: Record<string, string> = {},
+): Promise<string> {
+  // Two things a newer model can reject: response_format, and temperature at
+  // all. Both are dropped on retry rather than assumed unsupported, so an older
+  // model keeps the settings and a newer one still works.
+  const send = (jsonMode: boolean, withTemperature: boolean) => {
+    const body: Record<string, unknown> = {
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+    };
+    // Reasoning models reject temperature outright, so it is skipped rather
+    // than sent and retried: a wasted round trip on every single call.
+    if (withTemperature && !/^(o\d|gpt-5)/.test(model)) body.temperature = 0.8;
+    if (jsonMode) body.response_format = { type: 'json_object' };
+    return fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...extraHeaders },
+      body: JSON.stringify(body),
+    });
+  };
+
+  // Retry drops TEMPERATURE, never response_format.
+  //
+  // The old fallback stripped both together. Since the usual cause is a
+  // reasoning model rejecting temperature, the retry then succeeded with no JSON
+  // enforcement at all: a 200 carrying prose or fenced markdown, which parses to
+  // garbage downstream. A silent corruption is worse than the error it replaced.
+  let res = await send(useJsonMode, true);
+  if (!res.ok) res = await send(useJsonMode, false);
+  if (!res.ok) throw new Error(`Provider request failed. ${await readProviderError(res)}`);
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+async function callAnthropic(apiKey: string, model: string, system: string, prompt: string, jsonKeys: string[]): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      // Generous on purpose. max_tokens is a CEILING, not a spend, so headroom is
+      // free. Thinking tokens count toward it on Claude 5 and the doctrine prompt is
+      // 19,000 characters, so at 8000 the model spent the entire budget reasoning.
+      max_tokens: 64000,
+      // No temperature. The Claude 5 models reject it outright:
+      //   400 invalid_request_error: `temperature` is deprecated for this model.
+      // Sending it is a hard failure on current models and buys almost nothing on
+      // older ones, since the prefill and the pack constrain the output far more
+      // than a sampling parameter does.
+      system: system,
+      // No assistant prefill. It returns a hard 400 on Claude 4.6-generation
+      // models and later, which is both Claude 5 presets including the default,
+      // so the trick that was meant to guarantee JSON would have failed every
+      // request. Structured outputs do the same job and are supported on every
+      // model we offer, so this is one path rather than a per-model branch.
+      output_config: { format: jsonSchemaFor(jsonKeys) },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Anthropic request failed. ${await readProviderError(res)}`);
+  return textFrom(await res.json());
+}
+
+function parseFlow(raw: string, steps: OutputStep[]): Record<string, string> {
+  let text = (raw ?? '').trim();
+  if (text.startsWith('```')) text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) text = text.slice(first, last + 1);
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(
+      // The raw reply, trimmed. Without it "not valid JSON" is unactionable:
+      // a refusal, a preamble and a truncation all look identical from outside.
+      `The model did not return usable JSON. It replied with: ${text.slice(0, 300)}${text.length > 300 ? '…' : ''}`,
+    );
+  }
+  const out: Record<string, string> = {};
+  let filled = 0;
+  for (const step of steps) {
+    const v = String(parsed[step.key] ?? '').trim();
+    out[step.key] = v;
+    if (v) filled++;
+  }
+  out[STRATEGY_KEY] = String(parsed[STRATEGY_KEY] ?? '');
+
+  // A response that parses but carries none of the requested keys is a failure,
+  // and it used to be saved as a full set of empty strings — which the app then
+  // reported as twelve separate things to fix, with no hint that the real problem
+  // was upstream. Say what actually came back instead.
+  if (filled === 0) {
+    const got = Object.keys(parsed).slice(0, 8).join(', ') || 'nothing';
+    throw new Error(
+      `The model replied but used none of the requested fields. It returned: ${got}. ` +
+        'This usually means the response was cut short or the model ignored the format. ' +
+        'Try again, or pick a stronger model in Settings.',
+    );
+  }
+  // A partial response is worth keeping, but the user should know it is partial
+  // rather than discover it as a list of empty steps.
+  if (filled < steps.length) {
+    out.__partial = `${filled} of ${steps.length} steps came back. The rest were left empty by the model.`;
+  }
+  return out;
+}
+
+/**
+ * Every response carries the deployed version, including errors.
+ *
+ * Stamping only the success path meant a function could only be identified by
+ * generating successfully, which is exactly what you cannot do when something is
+ * wrong. Now a 400 answers "which revision is live?" just as well as a 200, so
+ * the app can check all three functions without spending a single token.
+ */
+const json = (body: unknown, status = 200, cors: Record<string, string> = {}) =>
+  new Response(
+    JSON.stringify(
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? { ...(body as Record<string, unknown>), __contract: CONTRACT }
+        : body,
+    ),
+    { status, headers: { ...cors, 'Content-Type': 'application/json' } },
+  );
+
+Deno.serve(async (req: Request) => {
+  const cors = corsFor(req);
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, cors);
+
+  const userId = await requireUser(req);
+  if (!userId) return json({ error: 'Sign in before generating outreach.' }, 401, cors);
+
+  try {
+    const input = (await req.json()) as RequestInput;
+    const lead = input.lead ?? {};
+    const provider = input.provider;
+    const apiKey = (input.apiKey ?? '').trim();
+
+    if (!lead.name || !lead.linkedin_url) {
+      return json({ error: 'Lead name and LinkedIn URL are required.' }, 400, cors);
+    }
+    if (provider !== 'gemini' && provider !== 'openai' && provider !== 'anthropic' && provider !== 'openrouter') {
+      return json({ error: 'A valid provider (gemini, openai, anthropic) is required.' }, 400, cors);
+    }
+    if (!apiKey) return json({ error: 'An API key is required. Add one in Settings.' }, 400, cors);
+
+    // The contract comes from the caller's method pack. Without it there is no
+    // honest shape to ask for, and guessing one is what produced the drift this
+    // parameter exists to end.
+    const steps = (input.steps ?? []).filter((s) => s && typeof s.key === 'string' && s.key);
+    if (!steps.length) {
+      return json(
+        { error: 'No output steps were supplied. Update the app so it sends the method pack structure.' },
+        400,
+        cors,
+      );
+    }
+
+    const model = (input.model ?? '').trim() || DEFAULT_MODEL[provider];
+    const system =
+      ((input.systemPrompt ?? '').trim() || SYSTEM_PROMPT) +
+      ' Always reply with a single valid JSON object and nothing else.';
+    const prompt = buildPrompt(lead, (input.context ?? '').trim(), steps);
+
+    let raw: string;
+    if (provider === 'anthropic') {
+      raw = await callAnthropic(apiKey, model, system, prompt, [...steps.map((st) => st.key), STRATEGY_KEY]);
+    } else if (provider === 'gemini') {
+      raw = await callOpenAICompatible(
+        'https://generativelanguage.googleapis.com/v1beta/openai',
+        apiKey,
+        model,
+        system,
+        prompt,
+        true,
+      );
+    } else if (provider === 'openrouter') {
+      // An explicit branch, not a fallthrough. Letting an unmatched provider
+      // land on the OpenAI base URL would send an OpenRouter key to OpenAI and
+      // report the result as an authentication problem with the user's key.
+      raw = await callOpenAICompatible(OPENROUTER_BASE, apiKey, model, system, prompt, true, OPENROUTER_HEADERS);
+    } else {
+      raw = await callOpenAICompatible('https://api.openai.com/v1', apiKey, model, system, prompt, true);
+    }
+
+    return json(parseFlow(raw, steps), 200, cors);
+  } catch (err) {
+    console.error('generate-outreach failed:', err);
+    const message = err instanceof Error ? err.message : 'Unexpected error generating outreach.';
+    return json({ error: message }, 500, cors);
+  }
+});

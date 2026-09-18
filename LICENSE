@@ -1,0 +1,202 @@
+# Ember Personal Use Licence
+
+Copyright (c) 2026 AI Growth Partners, Inc., doing business as Vertical AI
+Systems, a British Columbia corporation. All rights reserved.
+
+This is not open source software. It is provided to one named individual for
+their own use, on the terms below. If you did not receive it directly from Mani
+Kanasani, you do not have a licence to use it.
+
+In this licence, **"Mani Kanasani"** means AI Growth Partners, Inc. (doing
+business as Vertical AI Systems) and Mani Kanasani personally, together and
+individually. Every right reserved, every disclaimer given and every limit of
+liability set out below applies to both.
+
+---
+
+## 1. What you may do
+
+You are granted a personal, non-exclusive, non-transferable, revocable licence
+to:
+
+- install and run this software for yourself,
+- self-host it on infrastructure you control, using your own accounts and your
+  own API keys,
+- use it to run outreach for your own AI agency or your own business,
+- modify it for your own use.
+
+That is the whole grant. It is given to you as an individual, not to a company,
+a team, a cohort, or anyone you work with.
+
+## 2. What you may not do
+
+Without prior written permission from Mani Kanasani, you may not:
+
+- **sell, resell, license, sublicense, rent or lease** this software, in whole
+  or in part, modified or unmodified,
+- **redistribute or share it**, publicly or privately, including publishing it
+  to a public repository, a file share, a community, a course, or a group chat,
+- **offer it as a service** to anyone else, whether paid or free, hosted or
+  installed for them,
+- **use it to deliver work product to your own clients as a licensed or
+  resold tool**, or bundle it into anything you sell. Using it to write your own
+  outreach is fine. Handing your client a copy is not,
+- **distribute it on Mani Kanasani's behalf**, or state or imply that you are
+  authorised to give it to anyone, or that he endorses, supports, supplies or
+  is responsible for your copy or your use of it,
+- remove or alter this licence, the copyright notice, or any attribution.
+
+If someone else wants a copy, send them to Mani Kanasani. Do not send them the
+software.
+
+## 3. Ownership
+
+Mani Kanasani retains all right, title and interest in this software, including
+every modification and derivative work you make of it. Nothing here transfers
+ownership of anything.
+
+## 4. Your own accounts, your own costs
+
+This software has no AI capability of its own. It sends your prompts to
+whichever AI provider you configure, using an API key you supply, and it stores
+your data in a database you own.
+
+You are responsible for:
+
+- all charges billed by those providers, which can be substantial and are
+  entirely outside Mani Kanasani's control or visibility,
+- complying with the terms of every service you connect,
+- keeping your own API keys and data secure.
+
+## 5. Generated output: read this one
+
+This software uses artificial intelligence to generate text. **AI makes
+mistakes.** It can produce statements that are wrong, misleading, biased,
+offensive, or entirely fabricated, including invented statistics, invented
+sources, invented case studies, invented client names and invented results, all
+stated with complete confidence.
+
+The software contains checks that try to catch some of these. Those checks are
+imperfect by nature and are not a guarantee of anything.
+
+**Everything the software generates is a draft for you to verify.** You are
+solely responsible for reading, checking and correcting anything before you send
+it, publish it, or show it to another person. Every claim, figure, statistic and
+citation is yours the moment you send it, regardless of which part of it a model
+wrote.
+
+Mani Kanasani is not responsible for anything this software generates, or for
+anything you do with it.
+
+## 6. Outreach is regulated. That is on you.
+
+This software helps you send commercial messages to other people. Doing that is
+governed by law and by the terms of the platforms you send through.
+
+**Two things decide what applies to you, and neither of them is where I am.**
+The first is where you are sending from. The second is where each recipient is.
+Both bind you, and on a list spanning several countries the strictest regime
+that touches any recipient is the one you have to satisfy for that send.
+
+The regimes that most often apply, none of which is a default, include CAN-SPAM
+in the United States and its state privacy laws, GDPR and PECR across the
+European Union, UK GDPR, CASL and PIPEDA in Canada, the Australian Spam Act and
+Privacy Act, India's DPDP Act, and their equivalents elsewhere. They differ on
+the point that matters most: some let you send first and require a working
+opt-out, and others require consent or a lawful basis *before* the first
+message. Compliant practice under one can be a breach under another, so a
+sequence that is fine for a US list is not automatically fine for the same
+sequence sent to Europe.
+
+The platforms add their own rules on top, and those apply everywhere regardless
+of local law: LinkedIn, Upwork, and whatever email provider you send through.
+
+Work out which rules apply to you and to the people you are contacting, before
+you send. That research is yours to do. This software does not know where you
+are, does not know where your list is, and does not check.
+
+You are solely responsible for what you send, who you send it to, how you
+obtained their details, whether you are permitted to contact them, and for
+honouring opt-outs and deletion requests. Mani Kanasani is not responsible for
+any message you send, any account you get suspended, any complaint or penalty
+you receive, or any claim brought against you.
+
+## 7. No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, ACCURACY, AND NON-INFRINGEMENT.
+
+There is no promise that it works, that it keeps working, that it is free of
+defects, that it will be maintained, updated or supported, or that it will
+produce any result, any lead, any client, or any income. No support is included.
+
+**You use it entirely at your own risk.**
+
+## 8. No liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, MANI KANASANI SHALL NOT BE LIABLE FOR
+ANY CLAIM, DAMAGES, LOSS OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR
+OTHERWISE, ARISING FROM OR CONNECTED TO THIS SOFTWARE, ITS USE, ITS OUTPUT, OR
+ITS INABILITY TO BE USED.
+
+This includes, without limitation: lost revenue, lost profit, lost or corrupted
+data, damage to your reputation or your relationships, suspended or terminated
+accounts, provider fees you did not expect, regulatory penalties, and claims
+brought against you by any third party.
+
+You agree to indemnify and hold Mani Kanasani harmless from any claim arising
+out of your use of this software or anything you sent using it.
+
+## 9. Termination
+
+This licence ends automatically if you breach any part of it, and may be
+revoked by Mani Kanasani at any time. On termination you must stop using the
+software and delete every copy you hold. Sections 3, 5, 6, 7, 8, 9, 10 and 11
+survive termination.
+
+## 10. Governing law and jurisdiction
+
+This licence, and any dispute arising out of it or out of your use of the
+software, is governed by the laws of the **Province of British Columbia** and
+the federal laws of Canada applicable in it, without regard to conflict of law
+rules. The United Nations Convention on Contracts for the International Sale of
+Goods does not apply.
+
+You and Mani Kanasani agree that the courts of British Columbia, sitting at
+Vancouver, have exclusive jurisdiction over any such dispute, and you consent to
+the personal jurisdiction of those courts and waive any objection that they are
+an inconvenient forum.
+
+Most people using this are not in British Columbia, and that is expected. The
+choice above is simply the licensor's home jurisdiction, which is where a
+dispute about the licence itself would be heard. It is not a statement about
+which laws govern *your* outreach, which is section 6 and depends entirely on
+where you and your recipients are.
+
+If you are outside British Columbia you may have rights under your local law
+that cannot be signed away, consumer protection rights among them. Nothing here
+takes those away. Where your local law must override this section, it does, and
+the rest of this licence stands.
+
+**Before filing anything, talk to me.** Email mani@growthcreators.ai with what
+happened and give it thirty days. Most of what could go wrong here is a
+misunderstanding about scope, and a conversation settles it faster and cheaper
+than either of us going near a court.
+
+Either of us may still bring a claim in a small claims court or tribunal, and
+either of us may seek an injunction in any court that will hear it to stop
+unauthorised copying or redistribution, without waiting out the thirty days.
+
+## 11. General
+
+If any part of this licence is held unenforceable, the rest stays in force. A
+failure to enforce any part of it is not a waiver of the right to enforce it
+later. This is the entire agreement about this software, and it can only be
+varied in writing by Mani Kanasani.
+
+---
+
+*Written for clarity by someone who is not a lawyer. It says what it means and
+it is enforceable in shape, but if a serious sum or a serious dispute ever turns
+on it, have a BC lawyer read it once.*
